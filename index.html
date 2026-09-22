@@ -18,7 +18,7 @@
   </div>
 </div>
 <div id="appView" class="hidden">
-<header class="topbar"><div class="brand"><div class="logo-mark sm">M<span>R</span></div><div><b>MONREV PAUD</b><small>WONOGIRI 2026</small></div></div><div class="top-actions"><div class="user-pill"><span class="pulse"></span><span id="userLabel"></span></div><button id="logoutBtn" class="ghost">Keluar</button></div></header>
+<header class="topbar"><button id="sidebarToggle" class="sidebar-toggle" title="Minimalkan menu">☰</button><div class="brand"><div class="logo-mark sm">M<span>R</span></div><div><b>MONREV PAUD</b><small>WONOGIRI 2026</small></div></div><div class="top-actions"><div class="user-pill"><span class="pulse"></span><span id="userLabel"></span></div><button id="logoutBtn" class="ghost">Keluar</button></div></header>
 <div class="layout">
 <aside class="sidebar glass">
 <div class="section-label">NAVIGASI</div>
@@ -40,6 +40,7 @@
 <main class="content">
 <section id="dashboard" class="page active-page"></section><section id="rekap" class="page"></section><section id="sekolah" class="page"></section><section id="mingguan" class="page"></section><section id="bulanan" class="page"></section><section id="indikator" class="page"></section><section id="kendala" class="page"></section><section id="dokumentasi" class="page"></section><section id="dokumen" class="page"></section><section id="users" class="page"></section><section id="petunjuk" class="page"></section>
 </main></div></div>
+<div id="loadingOverlay" class="loading-overlay hidden"><div class="loading-box"><div class="spinner"></div><div id="loadingText">Memuat data...</div><div class="loading-bar"><span></span></div></div></div>
 <div id="toast"></div><div id="modal" class="modal hidden"></div>
 <script src="assets/js/app.js"></script>
 </body></html>
