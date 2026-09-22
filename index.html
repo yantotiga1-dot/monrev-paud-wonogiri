@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MONREV PAUD Wonogiri 2026</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <div id="loginView" class="center">
+    <div class="card login-card">
+      <h1>MONREV PAUD</h1>
+      <p>Monitoring Revitalisasi Satuan PAUD<br>Wonogiri 2026</p>
+      <form id="loginForm">
+        <input id="username" placeholder="Username" required>
+        <input id="password" type="password" placeholder="Password" required>
+        <button>Masuk</button>
+      </form>
+      <small>Demo: admin / admin123 &nbsp; | &nbsp; pimpinan / pimpinan123</small>
+    </div>
+  </div>
+
+  <div id="appView" class="hidden">
+    <header>
+      <div><strong>MONREV PAUD</strong><span> Wonogiri 2026</span></div>
+      <div><span id="userLabel"></span> <button id="logoutBtn" class="secondary">Keluar</button></div>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Dashboard Monitoring</h1>
+        <p>Ringkasan progres revitalisasi satuan PAUD.</p>
+      </section>
+      <section id="kpi" class="grid"></section>
+      <section class="grid two">
+        <div class="card"><h2>Status Satuan</h2><div id="statusList"></div></div>
+        <div class="card"><h2>Kendala Aktif</h2><div id="kendala"></div></div>
+      </section>
+      <section class="card">
+        <h2>Data Satuan PAUD</h2>
+        <input id="search" placeholder="Cari nama satuan / kecamatan / NPSN">
+        <div class="table-wrap"><table><thead><tr><th>ID</th><th>NPSN</th><th>Nama</th><th>Kecamatan</th><th>Anggaran</th><th>Status</th></tr></thead><tbody id="sekolahBody"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
