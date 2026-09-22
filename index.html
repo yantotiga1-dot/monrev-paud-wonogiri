@@ -14,7 +14,7 @@
     <h1>Admin <span>MONREV</span></h1>
     <p>Monitoring revitalisasi PAUD dalam satu dashboard.</p>
     <form id="loginForm"><input id="username" placeholder="Username" required><input id="password" type="password" placeholder="Password" required><button class="gold-btn">Masuk ke Dashboard <b>→</b></button></form>
-    <small>Gunakan akun aktif pada sheet USERS.</small>
+    <small>Gunakan akun aktif pada sheet USERS.</small><button type="button" class="connection-check" onclick="checkConnection()">● Cek koneksi sistem</button><div id="connectionStatus" class="connection-status" aria-live="polite"></div>
   </div>
 </div>
 <div id="appView" class="hidden">
