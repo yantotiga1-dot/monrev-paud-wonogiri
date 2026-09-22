@@ -1,206 +1,37 @@
 const API_URL='https://script.google.com/macros/s/AKfycby3oOaHap0Z-WkUtlxJgRKeowY5j7qCH12BbeTZd6TlpC7svLze46PPE4NZaZHZKY3b/exec';
-let user=null,data={},schema={};
-const cfg={
-  sekolah:{title:'Data Satuan PAUD',sheet:'SEKOLAH',key:'ID'},
-  mingguan:{title:'Monitoring Mingguan',sheet:'MONITORING_MINGGUAN',key:'ID_LAPORAN'},
-  bulanan:{title:'Monitoring Bulanan',sheet:'MONITORING_BULANAN',key:'ID_LAPORAN'},
-  indikator:{title:'Indikator Monev',sheet:'INDIKATOR_MONEV',key:'ID_CHECK'},
-  kendala:{title:'Kendala',sheet:'KENDALA',key:'ID_KENDALA'},
-  dokumentasi:{title:'Dokumentasi',sheet:'DOKUMENTASI',key:'ID_DOK'},
-  dokumen:{title:'Dokumen PAUD',sheet:'DOKUMEN_PAUD',key:'ID_DOKUMEN'},
-  users:{title:'Pengguna',sheet:'USERS',key:'ID_USER'}
-};
-const $=x=>document.getElementById(x);
-const esc=x=>String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
-
-function jsonp(action,params={}){
-  return new Promise((resolve,reject)=>{
-    const cb='monrev_cb_'+Date.now()+'_'+Math.floor(Math.random()*100000);
-    const url=new URL(API_URL);
-    url.searchParams.set('action',action);
-    url.searchParams.set('callback',cb);
-    Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,typeof v==='string'?v:JSON.stringify(v)));
-    const script=document.createElement('script');
-    const timer=setTimeout(()=>{cleanup();reject(new Error('Request timeout ke Apps Script.'))},20000);
-    function cleanup(){clearTimeout(timer);delete window[cb];script.remove()}
-    window[cb]=result=>{cleanup();resolve(result)};
-    script.onerror=()=>{cleanup();reject(new Error('Apps Script tidak dapat diakses.'))};
-    script.src=url.toString();
-    document.body.appendChild(script);
-  });
-}
-const get=jsonp;
-
-async function mutate(action,payload){
-  return jsonp(action,{...payload,role:user.role});
-}
-
-function toast(t,ok=true){
-  const x=$('toast');
-  x.textContent=t;
-  x.className=ok?'show ok':'show bad';
-  setTimeout(()=>x.className='',2800);
-}
-
-$('loginForm').onsubmit=async e=>{
-  e.preventDefault();
-  try{
-    const r=await get('login',{username:$('username').value,password:$('password').value});
-    if(!r.ok)return toast(r.message||r.error||'Login gagal.',false);
-    user=r.user;
-    sessionStorage.user=JSON.stringify(user);
-    await boot();
-  }catch(err){toast(err.message,false)}
-};
-
-$('logoutBtn').onclick=()=>{sessionStorage.removeItem('user');location.reload()};
-document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>show(b.dataset.page));
-
-async function boot(){
-  try{
-    $('loginView').classList.add('hidden');
-    $('appView').classList.remove('hidden');
-    $('userLabel').textContent=user.nama+' · '+user.role;
-    const [s,d]=await Promise.all([get('schema'),get('allData')]);
-    if(!s.ok)throw new Error(s.error||'Schema gagal dimuat.');
-    if(!d.ok)throw new Error(d.error||'Data gagal dimuat.');
-    schema=s.sheets||{};
-    data=d.data||{};
-    Object.keys(schema).forEach(k=>{if(!Array.isArray(data[k]))data[k]=[]});
-    show('dashboard');
-  }catch(err){
-    $('loginView').classList.remove('hidden');
-    $('appView').classList.add('hidden');
-    toast(err.message,false);
-  }
-}
-
-function show(p){
-  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active-page'));
-  $(p).classList.add('active-page');
-  document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.page===p));
-  render(p);
-}
-
-async function refresh(){
-  const r=await get('allData');
-  if(!r.ok)return toast(r.error||'Gagal memperbarui data.',false);
-  data=r.data||{};
-  const active=document.querySelector('.active-page');
-  if(active)render(active.id);
-  toast('Data diperbarui');
-}
-
-function render(p){
-  if(p==='dashboard')return dash();
-  if(p==='rekap')return rekap();
-  if(p==='petunjuk')return info();
-  if(cfg[p])return table(p);
-}
-
-function dash(){
-  const s=(data.SEKOLAH||[]).filter(x=>String(x.STATUS_AKTIF).toUpperCase()==='YA');
-  const m=data.MONITORING_MINGGUAN||[];
-  const nums=m.map(x=>+x.REALISASI_PROGRES).filter(Number.isFinite);
-  const avg=nums.length?(nums.reduce((a,b)=>a+b,0)/nums.length).toFixed(1):0;
-  const k=(data.KENDALA||[]).filter(x=>!['SELESAI','DITUTUP','CLOSED'].includes(String(x.STATUS).toUpperCase())).length;
-  const st={SELESAI:0,BERJALAN:0,TERLAMBAT:0,BELUM_MULAI:0};
-  s.forEach(x=>{const rows=m.filter(y=>String(y.ID_SEKOLAH)===String(x.ID));const q=rows[rows.length-1];const z=q?String(q.STATUS).toUpperCase():'BELUM_MULAI';if(st[z]!==undefined)st[z]++;else st.BERJALAN++});
-  const kec={};s.forEach(x=>{const a=x.KECAMATAN||'Lainnya';kec[a]=(kec[a]||0)+1});
-  $('dashboard').innerHTML=`<div class="hero"><div><div class="eyebrow">CONTROL CENTER</div><h1>Dashboard Monev</h1><p>Pantau progres revitalisasi PAUD Wonogiri secara ringkas dan terukur.</p></div><div class="hero-actions"><button class="ghost" onclick="refresh()">↻ Refresh</button><button class="gold-btn" onclick="show('rekap')">▥ Rekap Sekolah</button></div></div><div class="stats"><div class="stat glass"><span>Satuan Aktif</span><b>${s.length}</b></div><div class="stat glass"><span>Rata-rata Progres</span><b>${avg}%</b></div><div class="stat glass"><span>Monitoring Mingguan</span><b>${m.length}</b></div><div class="stat glass"><span>Kendala Aktif</span><b>${k}</b></div></div><div class="grid2"><div class="panel glass"><div class="panel-head"><div><h2>Status Terakhir</h2><small>Distribusi berdasarkan monitoring terakhir tiap sekolah</small></div></div><div class="status-grid"><div><b>${st.SELESAI}</b><span>Selesai</span></div><div><b>${st.BERJALAN}</b><span>Berjalan</span></div><div><b>${st.TERLAMBAT}</b><span>Terlambat</span></div><div><b>${st.BELUM_MULAI}</b><span>Belum Mulai</span></div></div></div><div class="panel glass"><div class="panel-head"><div><h2>Akses Cepat</h2><small>Menu yang sering digunakan</small></div></div><div class="quick-grid"><button onclick="show('sekolah')">Satuan PAUD</button><button onclick="show('mingguan')">Monitoring Mingguan</button><button onclick="show('bulanan')">Monitoring Bulanan</button><button onclick="show('kendala')">Kendala</button><button onclick="show('rekap')">Rekap Sekolah</button></div></div></div><div class="panel glass"><div class="panel-head"><div><h2>Sebaran Satuan per Kecamatan</h2><small>Jumlah satuan PAUD aktif</small></div></div><div class="bars">${Object.entries(kec).map(([a,b])=>`<div class="bar-row"><span>${esc(a)}</span><div><i style="width:${s.length?Math.max(4,b/s.length*100):0}%"></i></div><b>${b}</b></div>`).join('')||'<em>Belum ada data.</em>'}</div></div>`;
-}
-
-function table(p){
-  const c=cfg[p],rows=data[c.sheet]||[];
-  $(''+p).innerHTML=`<div class="hero"><div><div class="eyebrow">MODUL</div><h1>${c.title}</h1><p>${rows.length} data tersimpan.</p></div><div class="hero-actions"><button class="ghost" onclick="refresh()">↻ Refresh</button><button class="gold-btn" onclick="form('${p}')">＋ Tambah Data</button></div></div><div class="panel glass"><div class="toolbar"><input id="q_${p}" placeholder="Cari data..." oninput="filter('${p}')"></div><div class="table-wrap"><table id="t_${p}"><thead><tr>${(schema[c.sheet]||[]).map(h=>`<th>${esc(h)}</th>`).join('')}<th>Aksi</th></tr></thead><tbody>${rows.map((r,i)=>`<tr>${(schema[c.sheet]||[]).map(h=>`<td>${cell(r[h],h)}</td>`).join('')}<td><button class="mini" onclick="form('${p}',${i})">Edit</button><button class="mini danger" onclick="del('${p}',${i})">Hapus</button></td></tr>`).join('')}</tbody></table></div></div>`;
-}
-
-function cell(v,h){if(v===''||v==null)return'<span class="muted">—</span>';if(String(h).includes('URL')||String(h).includes('FILE_URL'))return`<a href="${esc(v)}" target="_blank">Buka ↗</a>`;return esc(v)}
-function filter(p){const q=$('q_'+p).value.toLowerCase();document.querySelectorAll(`#t_${p} tbody tr`).forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?'':'none')}
-
-function inp(k,label,v='',type='text',extra=''){return`<label>${esc(label)}<input id="f_${esc(k)}" type="${type}" value="${esc(v)}" ${extra}></label>`}
-function select(k,label,v,opts){return`<label>${esc(label)}<select id="f_${esc(k)}"><option value="">Pilih...</option>${opts.map(o=>`<option value="${esc(o)}" ${String(o)===String(v)?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`}
-function schoolSelect(k,v){
-  const schools=(data.SEKOLAH||[]).filter(x=>String(x.STATUS_AKTIF).toUpperCase()==='YA');
-  return`<label>Satuan PAUD<select id="f_${k}"><option value="">Pilih satuan...</option>${schools.map(x=>{const val=x.ID;return`<option value="${esc(val)}" ${String(val)===String(v)?'selected':''}>${esc(x.NAMA_SATUAN)} — ${esc(x.ID)}</option>`}).join('')}</select></label>`;
-}
-
-function specialFields(p,r){
-  if(p==='sekolah')return [inp('ID','ID',r.ID||crypto.randomUUID()),inp('NPSN','NPSN',r.NPSN),inp('NAMA_SATUAN','Nama Satuan',r.NAMA_SATUAN),select('JENIS','Jenis',r.JENIS,['TK','KB','SPS','TPA','Lainnya']),inp('KECAMATAN','Kecamatan',r.KECAMATAN),inp('DESA','Desa/Kelurahan',r.DESA),inp('MENU_REVIT','Menu Revitalisasi',r.MENU_REVIT),inp('ANGGARAN','Anggaran',r.ANGGARAN,'number'),inp('TARGET_SELESAI','Target Selesai',r.TARGET_SELESAI,'date'),select('STATUS_AKTIF','Status Aktif',r.STATUS_AKTIF,['YA','TIDAK'])].join('');
-  if(p==='mingguan')return [inp('ID_LAPORAN','ID Laporan',r.ID_LAPORAN||crypto.randomUUID()),schoolSelect('ID_SEKOLAH',r.ID_SEKOLAH),inp('NAMA_SATUAN','Nama Satuan',r.NAMA_SATUAN,'text','readonly'),inp('MINGGU_KE','Minggu Ke',r.MINGGU_KE,'number'),inp('TANGGAL_MULAI','Tanggal Mulai',r.TANGGAL_MULAI,'date'),inp('TANGGAL_AKHIR','Tanggal Akhir',r.TANGGAL_AKHIR,'date'),inp('RENCANA_PROGRES','Rencana Progres (%)',r.RENCANA_PROGRES,'number','min="0" max="100" step="0.01"'),inp('REALISASI_PROGRES','Realisasi Progres (%)',r.REALISASI_PROGRES,'number','min="0" max="100" step="0.01"'),select('STATUS','Status',r.STATUS,['BELUM_MULAI','BERJALAN','TERLAMBAT','SELESAI']),inp('KETERANGAN','Keterangan',r.KETERANGAN),inp('TINDAK_LANJUT','Tindak Lanjut',r.TINDAK_LANJUT),inp('PELAPOR','Pelapor',r.PELAPOR||user.nama)].join('');
-  if(p==='bulanan')return [inp('ID_LAPORAN','ID Laporan',r.ID_LAPORAN||crypto.randomUUID()),schoolSelect('ID_SEKOLAH',r.ID_SEKOLAH),inp('NAMA_SATUAN','Nama Satuan',r.NAMA_SATUAN,'text','readonly'),select('BULAN','Bulan',r.BULAN,['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']),inp('TAHUN','Tahun',r.TAHUN||2026,'number'),inp('RENCANA_PROGRES','Rencana Progres (%)',r.RENCANA_PROGRES,'number'),inp('REALISASI_PROGRES','Realisasi Progres (%)',r.REALISASI_PROGRES,'number'),select('STATUS','Status',r.STATUS,['BELUM_MULAI','BERJALAN','TERLAMBAT','SELESAI']),inp('KETERANGAN','Keterangan',r.KETERANGAN),inp('TINDAK_LANJUT','Tindak Lanjut',r.TINDAK_LANJUT),inp('PELAPOR','Pelapor',r.PELAPOR||user.nama)].join('');
-  if(p==='kendala')return [inp('ID_KENDALA','ID Kendala',r.ID_KENDALA||crypto.randomUUID()),schoolSelect('ID_SEKOLAH',r.ID_SEKOLAH),inp('NAMA_SATUAN','Nama Satuan',r.NAMA_SATUAN,'text','readonly'),inp('TANGGAL','Tanggal',r.TANGGAL,'date'),select('KATEGORI','Kategori',r.KATEGORI,['Teknis','Administrasi','Anggaran','SDM','Pengadaan','Cuaca','Lainnya']),inp('URAIAN','Uraian Kendala',r.URAIAN),select('PRIORITAS','Prioritas',r.PRIORITAS,['Rendah','Sedang','Tinggi','Darurat']),select('STATUS','Status',r.STATUS,['OPEN','BERJALAN','SELESAI']),inp('TINDAK_LANJUT','Tindak Lanjut',r.TINDAK_LANJUT),inp('TARGET_SELESAI','Target Selesai',r.TARGET_SELESAI,'date'),inp('PIC','PIC',r.PIC)].join('');
-  if(p==='indikator')return [inp('ID_CHECK','ID Check',r.ID_CHECK||crypto.randomUUID()),schoolSelect('ID_SEKOLAH',r.ID_SEKOLAH),inp('NAMA_SATUAN','Nama Satuan',r.NAMA_SATUAN,'text','readonly'),inp('TANGGAL','Tanggal',r.TANGGAL,'date'),select('PEKERJAAN_SESUAI_RENCANA','Pekerjaan Sesuai Rencana',r.PEKERJAAN_SESUAI_RENCANA,['YA','TIDAK']),select('PROGRES_FISIK','Progres Fisik',r.PROGRES_FISIK,['BAIK','CUKUP','KURANG']),select('ADMINISTRASI','Administrasi',r.ADMINISTRASI,['LENGKAP','SEBAGIAN','BELUM']),select('DOKUMENTASI','Dokumentasi',r.DOKUMENTASI,['LENGKAP','SEBAGIAN','BELUM']),select('PENGGUNAAN_ANGGARAN','Penggunaan Anggaran',r.PENGGUNAAN_ANGGARAN,['SESUAI','PERLU_REVIEW','TIDAK_SESUAI']),select('KESELAMATAN_KERJA','Keselamatan Kerja',r.KESELAMATAN_KERJA,['BAIK','PERLU_PERBAIKAN','KRITIS']),inp('CATATAN','Catatan',r.CATATAN),inp('PETUGAS','Petugas',r.PETUGAS||user.nama)].join('');
-  if(p==='users')return [inp('ID_USER','ID User',r.ID_USER||crypto.randomUUID()),inp('USERNAME','Username',r.USERNAME),inp('PASSWORD','Password',r.PASSWORD,'password'),inp('NAMA','Nama',r.NAMA),select('ROLE','Role',r.ROLE,['ADMIN','PIMPINAN']),inp('ID_SEKOLAH','ID Sekolah',r.ID_SEKOLAH),select('STATUS','Status',r.STATUS,['AKTIF','NONAKTIF'])].join('');
-  return (schema[cfg[p].sheet]||[]).map(h=>inp(h,h,r[h])).join('');
-}
-
-function form(p,i=null){
-  const r=i==null?{}:data[cfg[p].sheet][i];
-  const fields=specialFields(p,r);
-  $('toast').innerHTML=`<div class="modal"><div class="modal-card glass"><div class="modal-head"><div><div class="eyebrow">FORM DATA</div><h2>${i==null?'Tambah':'Edit'} ${cfg[p].title}</h2></div><button class="x" onclick="closeModal()">×</button></div><div class="form-grid">${fields}</div><div class="modal-actions"><button class="ghost" onclick="closeModal()">Batal</button><button class="gold-btn" onclick="save('${p}',${i==null?'null':i})">Simpan Data</button></div></div></div>`;
-}
-
-async function save(p,i){
-  try{
-    const c=cfg[p],headers=schema[c.sheet]||[];
-    let values=headers.map(h=>{const el=$('f_'+h);return el?el.value:''});
-    if(['mingguan','bulanan','kendala','indikator'].includes(p)){
-      const sid=$('f_ID_SEKOLAH')?.value||'';
-      const school=(data.SEKOLAH||[]).find(x=>String(x.ID)===String(sid));
-      const ni=headers.indexOf('ID_SEKOLAH'),nn=headers.indexOf('NAMA_SATUAN');
-      if(ni>=0)values[ni]=sid;
-      if(nn>=0)values[nn]=school?.NAMA_SATUAN||'';
-    }
-    if(p==='mingguan'||p==='bulanan'){
-      const rr=headers.indexOf('DEVIASI'),rp=headers.indexOf('RENCANA_PROGRES'),re=headers.indexOf('REALISASI_PROGRES');
-      if(rr>=0&&rp>=0&&re>=0)values[rr]=(Number(values[re]||0)-Number(values[rp]||0)).toFixed(2);
-    }
-    const result=i==null
-      ? await mutate('saveRow',{sheet:c.sheet,values:JSON.stringify(values)})
-      : await mutate('updateRow',{sheet:c.sheet,keyField:c.key,key:String(data[c.sheet][i][c.key]),values:JSON.stringify(values)});
-    if(!result.ok)return toast(result.error||result.message||'Gagal menyimpan.',false);
-    closeModal();await refresh();toast(result.message||'Data berhasil disimpan.');
-  }catch(err){toast(err.message,false)}
-}
-
-async function del(p,i){
-  if(!confirm('Hapus data ini?'))return;
-  try{
-    const c=cfg[p];
-    const result=await mutate('deleteRow',{sheet:c.sheet,keyField:c.key,key:String(data[c.sheet][i][c.key])});
-    if(!result.ok)return toast(result.error||'Gagal menghapus.',false);
-    await refresh();toast(result.message||'Data dihapus.');
-  }catch(err){toast(err.message,false)}
-}
-
-function closeModal(){document.querySelector('.modal')?.remove();$('toast').className=''}
-function info(){$('petunjuk').innerHTML=`<div class="hero"><div><div class="eyebrow">PANDUAN</div><h1>Petunjuk Sistem</h1><p>Gunakan navigasi untuk mengelola proses monitoring.</p></div></div><div class="panel glass info">${(data.PETUNJUK||[]).map(r=>`<p>${Object.values(r).map(esc).join(' — ')}</p>`).join('')||'<p>Petunjuk belum tersedia.</p>'}</div>`}
-
-function rekap(){
-  const schools=(data.SEKOLAH||[]).filter(x=>String(x.STATUS_AKTIF).toUpperCase()==='YA');
-  $('rekap').innerHTML=`<div class="hero"><div><div class="eyebrow">MONITORING DETAIL</div><h1>Rekap per Sekolah</h1><p>Pilih satuan PAUD untuk melihat ringkasan progres, monitoring, kendala, indikator, dan dokumen.</p></div><div class="hero-actions"><button class="ghost" onclick="refresh()">↻ Refresh</button></div></div><div class="panel glass"><div class="rekap-select"><label>Pilih Satuan PAUD<select id="rekapSchool" onchange="renderRekapSchool()"><option value="">Pilih sekolah...</option>${schools.map(x=>`<option value="${esc(x.ID)}">${esc(x.NAMA_SATUAN)} — ${esc(x.ID)}</option>`).join('')}</select></label></div><div id="rekapContent"><div class="empty">Silakan pilih satuan PAUD.</div></div></div>`;
-}
-
-function renderRekapSchool(){
-  const id=$('rekapSchool')?.value;
-  const target=$('rekapContent');
-  if(!id){target.innerHTML='<div class="empty">Silakan pilih satuan PAUD.</div>';return}
-  const school=(data.SEKOLAH||[]).find(x=>String(x.ID)===String(id));
-  if(!school){target.innerHTML='<div class="empty">Data sekolah tidak ditemukan.</div>';return}
-  const weekly=(data.MONITORING_MINGGUAN||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const monthly=(data.MONITORING_BULANAN||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const kendala=(data.KENDALA||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const indikator=(data.INDIKATOR_MONEV||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const dokumentasi=(data.DOKUMENTASI||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const dokumen=(data.DOKUMEN_PAUD||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));
-  const latest=weekly.length?weekly[weekly.length-1]:null;
-  const latestMonthly=monthly.length?monthly[monthly.length-1]:null;
-  const avg=weekly.length?weekly.map(x=>Number(x.REALISASI_PROGRES)).filter(Number.isFinite):[];
-  const avgValue=avg.length?(avg.reduce((a,b)=>a+b,0)/avg.length).toFixed(1):'0';
-  const activeKendala=kendala.filter(x=>!['SELESAI','DITUTUP','CLOSED'].includes(String(x.STATUS).toUpperCase())).length;
-  target.innerHTML=`<div class="school-profile"><div><div class="eyebrow">SATUAN PAUD</div><h2>${esc(school.NAMA_SATUAN||'-')}</h2><p>${esc(school.ID||'')} · NPSN ${esc(school.NPSN||'-')} · ${esc(school.JENIS||'-')}</p><p>${esc(school.DESa||school.DESA||'-')}, Kec. ${esc(school.KECAMATAN||'-')}</p></div><div class="school-meta"><span>Status <b>${esc(school.STATUS_AKTIF||'-')}</b></span><span>Menu Revitalisasi <b>${esc(school.MENU_REVIT||'-')}</b></span><span>Target <b>${esc(school.TARGET_SELESAI||'-')}</b></span></div></div><div class="stats compact"><div class="stat"><span>Progres Rata-rata</span><b>${avgValue}%</b></div><div class="stat"><span>Monitoring Mingguan</span><b>${weekly.length}</b></div><div class="stat"><span>Kendala Aktif</span><b>${activeKendala}</b></div><div class="stat"><span>Dokumentasi</span><b>${dokumentasi.length}</b></div></div><div class="grid2"><div class="panel nested"><h3>Monitoring Mingguan Terakhir</h3>${latest?`<div class="detail-grid"><span>Status<strong>${esc(latest.STATUS||'-')}</strong></span><span>Progres<strong>${esc(latest.REALISASI_PROGRES||0)}%</strong></span><span>Minggu<strong>${esc(latest.MINGGU_KE||'-')}</strong></span><span>Deviasi<strong>${esc(latest.DEVIASI||'-')}</strong></span><span>Tanggal<strong>${esc(latest.TANGGAL_AKHIR||'-')}</strong></span></div><p>${esc(latest.KETERANGAN||'Tidak ada keterangan.')}</p>`:'<div class="empty">Belum ada monitoring mingguan.</div>'}</div><div class="panel nested"><h3>Monitoring Bulanan Terakhir</h3>${latestMonthly?`<div class="detail-grid"><span>Periode<strong>${esc(latestMonthly.BULAN||'-')} ${esc(latestMonthly.TAHUN||'')}</strong></span><span>Status<strong>${esc(latestMonthly.STATUS||'-')}</strong></span><span>Progres<strong>${esc(latestMonthly.REALISASI_PROGRES||0)}%</strong></span><span>Deviasi<strong>${esc(latestMonthly.DEVIASI||'-')}</strong></span></div><p>${esc(latestMonthly.KETERANGAN||'Tidak ada keterangan.')}</p>`:'<div class="empty">Belum ada monitoring bulanan.</div>'}</div></div><div class="grid2"><div class="panel nested"><h3>Kendala</h3>${kendala.length?`<div class="mini-list">${kendala.slice(-8).reverse().map(x=>`<div><b>${esc(x.PRIORITAS||'-')}</b> · ${esc(x.STATUS||'-')}<p>${esc(x.URAIAN||'-')}</p><small>${esc(x.TINDAK_LANJUT||'')}</small></div>`).join('')}</div>`:'<div class="empty">Belum ada kendala.</div>'}</div><div class="panel nested"><h3>Indikator Monev Terakhir</h3>${indikator.length?`<div class="detail-grid"><span>Sesuai Rencana<strong>${esc(indikator[indikator.length-1].PEKERJAAN_SESUAI_RENCANA||'-')}</strong></span><span>Progres Fisik<strong>${esc(indikator[indikator.length-1].PROGRES_FISIK||'-')}</strong></span><span>Administrasi<strong>${esc(indikator[indikator.length-1].ADMINISTRASI||'-')}</strong></span><span>Dokumentasi<strong>${esc(indikator[indikator.length-1].DOKUMENTASI||'-')}</strong></span><span>Anggaran<strong>${esc(indikator[indikator.length-1].PENGGUNAAN_ANGGARAN||'-')}</strong></span><span>K3<strong>${esc(indikator[indikator.length-1].KESELAMATAN_KERJA||'-')}</strong></span></div><p>${esc(indikator[indikator.length-1].CATATAN||'Tidak ada catatan.')}</p>`:'<div class="empty">Belum ada indikator monev.</div>'}</div></div><div class="grid2"><div class="panel nested"><h3>Dokumentasi</h3>${dokumentasi.length?`<div class="mini-list">${dokumentasi.slice(-8).reverse().map(x=>`<div><b>${esc(x.TAHAP||'-')}</b> · ${esc(x.TANGGAL||'-')} ${x.URL_FOTO?`· <a href="${esc(x.URL_FOTO)}" target="_blank">Buka foto ↗</a>`:''}<p>${esc(x.KETERANGAN||'')}</p></div>`).join('')}</div>`:'<div class="empty">Belum ada dokumentasi.</div>'}</div><div class="panel nested"><h3>Dokumen PAUD</h3>${dokumen.length?`<div class="mini-list">${dokumen.slice(-8).reverse().map(x=>`<div><b>${esc(x.JENIS_DOKUMEN||'-')}</b> · ${esc(x.TAHUN||'-')} ${x.FILE_URL?`· <a href="${esc(x.FILE_URL)}" target="_blank">Buka dokumen ↗</a>`:''}<p>${esc(x.NAMA_FILE||'')}</p></div>`).join('')}</div>`:'<div class="empty">Belum ada dokumen.</div>'}</div></div>`;
-}
-
-const saved=sessionStorage.user;
-if(saved){try{user=JSON.parse(saved);boot()}catch(e){sessionStorage.removeItem('user')}}
+const SHEETS=['SEKOLAH','MONITORING_MINGGUAN','MONITORING_BULANAN','INDIKATOR_MONEV','KENDALA','DOKUMENTASI','DOKUMEN_PAUD','USERS','PETUNJUK'];
+const LABELS={SEKOLAH:'Satuan PAUD',MONITORING_MINGGUAN:'Monitoring Mingguan',MONITORING_BULANAN:'Monitoring Bulanan',INDIKATOR_MONEV:'Indikator Monev',KENDALA:'Kendala',DOKUMENTASI:'Dokumentasi',DOKUMEN_PAUD:'Dokumen PAUD',USERS:'Pengguna'};
+let state={user:null,schema:{},data:{},currentPage:'dashboard'};
+const $=id=>document.getElementById(id);
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function toast(msg,bad=false){$('toast').innerHTML='<div class="toast '+(bad?'bad':'')+'">'+esc(msg)+'</div>';setTimeout(()=>{$('toast').innerHTML=''},3200)}
+function jsonp(params){return new Promise((resolve,reject)=>{const cb='cb_'+Date.now()+'_'+Math.floor(Math.random()*1e6);let timer;const s=document.createElement('script');const q=new URLSearchParams({...params,callback:cb});window[cb]=(data)=>{clearTimeout(timer);delete window[cb];s.remove();resolve(data)};s.onerror=()=>{clearTimeout(timer);delete window[cb];s.remove();reject(new Error('Apps Script tidak merespons JSONP. Pastikan deployment versi terbaru sudah aktif.'))};s.src=API_URL+'?'+q.toString();document.body.appendChild(s);timer=setTimeout(()=>{delete window[cb];s.remove();reject(new Error('Request timeout.'))},20000)})}
+async function api(action,params={}){const r=await jsonp({action,...params});if(!r||r.ok===false)throw new Error(r?.error||r?.message||'Operasi gagal');return r}
+async function loadAll(){const [s,d]=await Promise.all([api('schema'),api('allData')]);state.schema=s.sheets||{};state.data=d.data||{};SHEETS.forEach(n=>{if(!Array.isArray(state.data[n]))state.data[n]=[]});}
+function showPage(page){state.currentPage=page;document.querySelectorAll('.page').forEach(x=>x.classList.remove('active-page'));$(page)?.classList.add('active-page');document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.page===page));renderPage(page)}
+function renderPage(page){if(page==='dashboard')renderDashboard();else if(page==='rekap')renderRekap();else if(SHEETS.includes(pageToSheet(page)))renderCrud(pageToSheet(page));else if(page==='petunjuk')renderPetunjuk()}
+function pageToSheet(p){return {sekolah:'SEKOLAH',mingguan:'MONITORING_MINGGUAN',bulanan:'MONITORING_BULANAN',indikator:'INDIKATOR_MONEV',kendala:'KENDALA',dokumentasi:'DOKUMENTASI',dokumen:'DOKUMEN_PAUD',users:'USERS'}[p]}
+function renderDashboard(){const d=state.data,s=d.SEKOLAH||[],w=d.MONITORING_MINGGUAN||[],b=d.MONITORING_BULANAN||[],k=d.KENDALA||[];const nums=w.map(x=>Number(x.REALISASI_PROGRES)).filter(Number.isFinite);const avg=nums.length?(nums.reduce((a,v)=>a+v,0)/nums.length).toFixed(1):'0';$('dashboard').innerHTML=`<div class="page-title"><div><h2>Dashboard</h2><p>Ringkasan kondisi monitoring revitalisasi PAUD.</p></div><button class="primary" onclick="refreshData()">↻ Refresh Data</button></div><div class="grid"><div class="card metric"><div class="label">SATUAN PAUD</div><div class="value">${s.length}</div></div><div class="card metric"><div class="label">RATA-RATA PROGRES</div><div class="value">${avg}%</div></div><div class="card metric"><div class="label">MONITORING MINGGUAN</div><div class="value">${w.length}</div></div><div class="card metric"><div class="label">KENDALA AKTIF</div><div class="value">${k.filter(x=>!['SELESAI','DITUTUP'].includes(String(x.STATUS||'').toUpperCase())).length}</div></div></div><div class="card" style="margin-top:14px"><h3>Aktivitas Data</h3><p style="color:#8aa2c5">Monitoring bulanan: <b>${b.length}</b> · Dokumentasi: <b>${(d.DOKUMENTASI||[]).length}</b> · Dokumen PAUD: <b>${(d.DOKUMEN_PAUD||[]).length}</b> · Indikator: <b>${(d.INDIKATOR_MONEV||[]).length}</b></p></div>`}
+function renderCrud(sheet){const rows=state.data[sheet]||[],headers=state.schema[sheet]||[];$(`${pageId(sheet)}`).innerHTML=`<div class="page-title"><div><h2>${LABELS[sheet]||sheet}</h2><p>Tambah, edit, dan hapus data langsung ke Google Spreadsheet.</p></div><button class="primary" onclick="openForm('${sheet}')">＋ Tambah Data</button></div><div class="table-card"><div class="toolbar"><input id="search_${sheet}" placeholder="Cari data..." oninput="filterTable('${sheet}')"><button class="secondary" onclick="refreshData()">↻ Refresh</button></div><div class="table-wrap"><table class="table"><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}<th>Aksi</th></tr></thead><tbody id="tbody_${sheet}">${rows.length?rows.map((r,i)=>tableRow(sheet,headers,r,i)).join(''):`<tr><td colspan="${headers.length+1}"><div class="empty">Belum ada data.</div></td></tr>`}</tbody></table></div></div>`}
+function pageId(sheet){return {SEKOLAH:'sekolah',MONITORING_MINGGUAN:'mingguan',MONITORING_BULANAN:'bulanan',INDIKATOR_MONEV:'indikator',KENDALA:'kendala',DOKUMENTASI:'dokumentasi',DOKUMEN_PAUD:'dokumen',USERS:'users'}[sheet]}
+function keyField(sheet){const h=state.schema[sheet]||[];return h[0]||'ID'}
+function tableRow(sheet,headers,r,i){const key=keyField(sheet),keyv=r[key]??i;return `<tr data-search="${esc(JSON.stringify(r))}">${headers.map(h=>`<td>${h.includes('URL')||h.includes('URL_')||h==='FILE_URL'?((r[h]?`<a href="${esc(r[h])}" target="_blank">Buka</a>`:'')):esc(r[h])}</td>`).join('')}<td><div class="actions"><button class="secondary" onclick='openForm(${JSON.stringify(sheet)},${JSON.stringify(r)})'>Edit</button><button class="danger" onclick='removeRow(${JSON.stringify(sheet)},${JSON.stringify(key)},${JSON.stringify(String(keyv))})'>Hapus</button></div></td></tr>`}
+function filterTable(sheet){const q=($(`search_${sheet}`)?.value||'').toLowerCase();document.querySelectorAll(`#tbody_${sheet} tr`).forEach(tr=>tr.style.display=(tr.innerText||'').toLowerCase().includes(q)?'':'none')}
+function generatedId(sheet){const p={SEKOLAH:'PAUD',MONITORING_MINGGUAN:'MW',MONITORING_BULANAN:'MB',INDIKATOR_MONEV:'MONEV',KENDALA:'KDL',DOKUMENTASI:'DOK',DOKUMEN_PAUD:'DOC',USERS:'USR'}[sheet]||'ID';return p+'-'+Date.now().toString(36).toUpperCase()}
+function schoolOptions(selected){return (state.data.SEKOLAH||[]).map(s=>`<option value="${esc(s.ID)}" ${String(s.ID)===String(selected)?'selected':''}>${esc(s.NAMA_SATUAN||s.ID)}</option>`).join('')}
+const autoFields=['TIMESTAMP'];
+function fieldHtml(sheet,h,val=''){const schoolRelated=['ID_SEKOLAH'];const readonly=['TIMESTAMP'];let input='';if(h==='ID_SEKOLAH'){input=`<select data-field="${h}"><option value="">-- pilih sekolah --</option>${schoolOptions(val)}</select>`}else if(h==='NAMA_SATUAN'){input=`<input data-field="${h}" value="${esc(val)}" readonly>`}else if(h==='STATUS_AKTIF'){input=`<select data-field="${h}"><option ${val==='YA'?'selected':''}>YA</option><option ${val==='TIDAK'?'selected':''}>TIDAK</option></select>`}else if(h==='ROLE'){input=`<select data-field="${h}"><option ${val==='ADMIN'?'selected':''}>ADMIN</option><option ${val==='PIMPINAN'?'selected':''}>PIMPINAN</option></select>`}else if(['STATUS','PRIORITAS','JENIS','TAHAP','KATEGORI','MENU_REVIT'].includes(h)){input=`<input data-field="${h}" value="${esc(val)}">`}else if(h==='KETERANGAN'||h==='URAIAN'||h==='TINDAK_LANJUT'||h==='CATATAN'){input=`<textarea data-field="${h}">${esc(val)}</textarea>`}else if(readonly.includes(h)){input=`<input data-field="${h}" value="${esc(val)}" readonly>`}else{input=`<input data-field="${h}" value="${esc(val)}">`}return `<div class="field ${h==='KETERANGAN'||h==='URAIAN'||h==='TINDAK_LANJUT'||h==='CATATAN'?'full':''}"><label>${esc(h)}</label>${input}</div>`}
+function openForm(sheet,row={}){const headers=state.schema[sheet]||[];const isEdit=Object.keys(row).length>0;const values={...row};if(!isEdit&&headers[0])values[headers[0]]=generatedId(sheet);$('modal').classList.remove('hidden');$('modal').innerHTML=`<div class="modal-box"><div class="modal-head"><h3>${isEdit?'Edit':'Tambah'} ${esc(LABELS[sheet]||sheet)}</h3><button class="ghost" onclick="closeModal()">✕</button></div><div class="form-grid" id="form_${sheet}">${headers.filter(h=>h!=='TIMESTAMP').map(h=>fieldHtml(sheet,h,values[h]??'')).join('')}</div><div class="modal-actions"><button class="ghost" onclick="closeModal()">Batal</button><button class="gold-btn" onclick='submitForm(${JSON.stringify(sheet)},${JSON.stringify(isEdit)},${JSON.stringify(row)})'>Simpan</button></div></div>`;if(headers.includes('ID_SEKOLAH')){const sel=document.querySelector('#form_'+sheet+' [data-field="ID_SEKOLAH"]');sel?.addEventListener('change',()=>{const s=(state.data.SEKOLAH||[]).find(x=>String(x.ID)===String(sel.value));const n=document.querySelector('#form_'+sheet+' [data-field="NAMA_SATUAN"]');if(n)n.value=s?.NAMA_SATUAN||''})}}
+function closeModal(){$('modal').classList.add('hidden');$('modal').innerHTML=''}
+function submitForm(sheet,isEdit,oldRow){const headers=state.schema[sheet]||[];const vals=headers.map(h=>{if(h==='TIMESTAMP')return oldRow.TIMESTAMP||'';const el=document.querySelector(`#form_${sheet} [data-field="${CSS.escape(h)}"]`);return el?el.value:''});const key=keyField(sheet);const keyVal=oldRow[key]??vals[headers.indexOf(key)];const params={role:state.user.role,sheet,values:JSON.stringify(vals)};if(isEdit){params.keyField=key;params.key=keyVal}api(isEdit?'updateRow':'saveRow',params).then(async()=>{toast(isEdit?'Data berhasil diperbarui.':'Data berhasil ditambahkan.');closeModal();await loadAll();renderPage(state.currentPage)}).catch(e=>toast(e.message,true))}
+function removeRow(sheet,keyField,key){if(!confirm('Hapus data ini?'))return;api('deleteRow',{role:state.user.role,sheet,keyField,key}).then(async()=>{toast('Data berhasil dihapus.');await loadAll();renderPage(state.currentPage)}).catch(e=>toast(e.message,true))}
+async function refreshData(){try{await loadAll();renderPage(state.currentPage);toast('Data berhasil diperbarui.')}catch(e){toast(e.message,true)}}
+function renderRekap(){const schools=state.data.SEKOLAH||[];$('rekap').innerHTML=`<div class="page-title"><div><h2>Rekap per Sekolah</h2><p>Pilih satu satuan PAUD untuk melihat seluruh informasi monitoringnya.</p></div></div><div class="card"><label class="field"><span style="display:block;color:#8ca6cc;font-size:11px;margin-bottom:6px">PILIH SATUAN PAUD</span><select id="rekapSchool"><option value="">-- Pilih sekolah --</option>${schoolOptions('')}</select></label></div><div id="rekapResult" style="margin-top:14px"><div class="empty card">Silakan pilih sekolah.</div></div>`;$('rekapSchool').onchange=()=>renderSchoolRecap($('rekapSchool').value)}
+function renderSchoolRecap(id){const s=(state.data.SEKOLAH||[]).find(x=>String(x.ID)===String(id));if(!s){$('rekapResult').innerHTML='<div class="empty card">Sekolah belum dipilih.</div>';return}const related=(name)=> (state.data[name]||[]).filter(x=>String(x.ID_SEKOLAH)===String(id));const w=related('MONITORING_MINGGUAN'),b=related('MONITORING_BULANAN'),k=related('KENDALA'),d=related('DOKUMENTASI'),doc=related('DOKUMEN_PAUD'),ind=related('INDIKATOR_MONEV');const progress=[...w.map(x=>Number(x.REALISASI_PROGRES)),...b.map(x=>Number(x.REALISASI_PROGRES))].filter(Number.isFinite);const avg=progress.length?(progress.reduce((a,v)=>a+v,0)/progress.length).toFixed(1):'0';$('rekapResult').innerHTML=`<div class="school-head"><div class="card"><div class="label">SATUAN</div><h2>${esc(s.NAMA_SATUAN)}</h2><p>${esc(s.JENIS||'')} · NPSN ${esc(s.NPSN||'-')}</p></div><div class="card"><div class="label">PROGRES RATA-RATA</div><div class="value">${avg}%</div></div><div class="card"><div class="label">MONITORING</div><div class="value">${w.length+b.length}</div></div><div class="card"><div class="label">KENDALA</div><div class="value">${k.length}</div></div></div><div class="card" style="margin-top:14px"><b>Identitas & Revitalisasi</b><p>${esc(s.KECAMATAN||'-')} · ${esc(s.DESA||'-')} · ${esc(s.MENU_REVIT||'-')} · Anggaran ${formatMoney(s.ANGGARAN)} · Target ${esc(s.TARGET_SELESAI||'-')}</p></div><div class="rekap-sections">${InfoList('Monitoring Mingguan',w,'MINGGU_KE,RENCANA_PROGRES,REALISASI_PROGRES,STATUS,TANGGAL_AKHIR')}${InfoList('Monitoring Bulanan',b,'BULAN,TAHUN,RENCANA_PROGRES,REALISASI_PROGRES,STATUS')}${InfoList('Kendala',k,'TANGGAL,KATEGORI,URAIAN,PRIORITAS,STATUS,TARGET_SELESAI')}${InfoList('Indikator Monev',ind,'TANGGAL,PEKERJAAN_SESUAI_RENCANA,PROGRES_FISIK,ADMINISTRASI,DOKUMENTASI,PENGGUNAAN_ANGGARAN,KESELAMATAN_KERJA')}${InfoList('Dokumentasi',d,'TAHAP,TANGGAL,KETERANGAN,URL_FOTO')}${InfoList('Dokumen PAUD',doc,'JENIS_DOKUMEN,TAHUN,NAMA_FILE,KETERANGAN,FILE_URL')}</div>`}
+function InfoList({title,rows,fields}){return `<div class="card"><h3>${esc(title)} <span class="badge">${rows.length}</span></h3>${rows.length?`<ul class="list">${rows.slice(-8).reverse().map(r=>`<li>${fields.split(',').map(f=>`<div><small style="color:#7591b9">${esc(f)}</small>: ${f==='URL_FOTO'||f==='FILE_URL'?(r[f]?`<a href="${esc(r[f])}" target="_blank">Buka</a>`:'-'):esc(r[f])}</div>`).join('')}</li>`).join('')}</ul>`:'<div class="empty">Belum ada data.</div>'}</div>`}
+function formatMoney(v){const n=Number(v);return Number.isFinite(n)?new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(n):'-'}
+function renderPetunjuk(){$('petunjuk').innerHTML=`<div class="page-title"><div><h2>Petunjuk</h2><p>Panduan penggunaan Admin MONREV.</p></div></div><div class="card"><ol>${(state.data.PETUNJUK||[]).map(r=>`<li style="padding:8px">${esc(Object.values(r)[0]||'')}</li>`).join('')||'<li>Belum ada petunjuk.</li>'}</ol></div>`}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await api('login',{username:$('username').value,password:$('password').value});state.user=r.user;sessionStorage.setItem('monrev_user',JSON.stringify(r.user));$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');$('userLabel').textContent=r.user.nama+' · '+r.user.role;await loadAll();showPage('dashboard')}catch(err){toast(err.message,true)}});
+$('logoutBtn').onclick=()=>{sessionStorage.removeItem('monrev_user');location.reload()};
+document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
+(async()=>{const saved=sessionStorage.getItem('monrev_user');if(saved){try{state.user=JSON.parse(saved);$('loginView').classList.add('hidden');$('appView').classList.remove('hidden');$('userLabel').textContent=state.user.nama+' · '+state.user.role;await loadAll();showPage('dashboard')}catch(e){sessionStorage.removeItem('monrev_user')}}})();
