@@ -1,4 +1,4 @@
-const API_URL = 'GANTI_DENGAN_URL_WEB_APP_APPS_SCRIPT';
+const API_URL = 'https://script.google.com/macros/s/AKfycby3oOaHap0Z-WkUtlxJgRKeowY5j7qCH12BbeTZd6TlpC7svLze46PPE4NZaZHZKY3b/exec';
 let currentUser = null;
 let sekolahCache = [];
 
